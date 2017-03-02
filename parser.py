@@ -89,6 +89,7 @@ class Board(object):
         # Encode move up, right, left, down
         delta = pos_final - pos_init
 
+        direction = None
         if pos_init in odd_list:
             if delta == -3 or delta == -7:
                 direction = 0  # Up Right
@@ -155,14 +156,111 @@ class Board(object):
             return True
 
 
-if __name__ == '__main__':
+def remove_any_comments(data):
+    # Remove any parenthetical comments
+    if '{' in data or '}' in data:
+        str1 = data[0: data.index('{')]
+        str2 = data[data.index('}') + 1:]
+        return str1.join(str2)
+    else:
+        return data
 
+
+def make_single_line(data):
+    data = data.split('\n')
+    return ''.join(data)
+
+
+def tokenize_moves(data):
+    move_tokens = data.split('.')
+    return move_tokens[1:]
+
+
+def parse_moves_into_dict(moves, contestants):
+    for player in contestants:
+        ind_player = contestants.index(player)
+
+        if len(moves[ind_player].split('-')) == 2:
+            entries = moves[ind_player].split('-')
+
+            try:
+                if int(entries[0]) and int(entries[1]) in valid_entries:
+                    player_state = board.board_state(player_type=player)
+                    player_move = board.move(entries, player_type=player)
+                    game_corrupt = board.update(entries,
+                                                player_type=player,
+                                                move_type='standard')
+                else:
+                    game_corrupt = True
+                    game_corrupt_count += 1
+                    print('Corrupt game # %d: Invalid Entry *' % game_corrupt_count)
+                    print(event)
+                    print(entries[0], entries[1])
+            except ValueError:
+                game_corrupt = True
+                game_corrupt_count += 1
+                print('Corrupt game # %d: entry non-convertable to integer'
+                      % game_corrupt_count)
+                print(event)
+                print(entries[0], entries[1])
+
+        elif len(moves[ind_player].split('x')) >= 2:
+            entries = moves[ind_player].split('x')
+
+            for i in range(len(entries) - 1):
+
+                try:
+                    if int(entries[i]) and int(entries[i + 1]) in valid_entries:
+                        player_state = board.board_state(player_type=player)
+                        player_move = board.move(entries[i: i + 2], player_type=player)
+                        game_corrupt = board.update(entries[i: i + 2],
+                                                    player_type=player,
+                                                    move_type='jump')
+                    else:
+                        game_corrupt = True
+                        game_corrupt_count += 1
+                        print('Corrupt game # %d: Invalid Entry **' % game_corrupt_count)
+                        print(event)
+                        print(entries[i], entries[i+1])
+                except ValueError:
+                    game_corrupt = True
+                    game_corrupt_count += 1
+                    print('Corrupt game # %d: entry non-convertable to integer'
+                          % game_corrupt_count)
+                    print(event)
+                    print(entries[i], entries[i+1])
+
+        else:
+            game_corrupt = True
+            game_corrupt_count += 1
+            print("Corrupt game # %d: moves could not be split on '-' or 'x'"
+                  % game_corrupt_count)
+            print(event)
+            print(moves)
+
+        if not game_corrupt:
+
+            if player == result and g == 'win':
+                win_dict[win_counter] = [player_state, player_move]
+                win_counter += 1
+            elif result == 'draw' and g == 'draw':
+                draw_dict[draw_counter] = [player_state, player_move]
+                draw_counter += 1
+            elif g == 'lose':
+                loss_dict[loss_counter] = [player_state, player_move]
+                loss_counter += 1
+        else:
+            break
+
+# if __name__ == '__main__':
+def main():
     # Create Win, Loss, & Draw dicts and counters that will be used as keys
     win_dict, win_counter = dict(), 0
     loss_dict, loss_counter = dict(), 0
     draw_dict, draw_counter = dict(), 0
 
     # Define initial board assignments, and jumps
+    global initial_board, jumps
     initial_board = pd.read_csv(filepath_or_buffer='board_init.csv', header=-1, index_col=None)
     jumps = pd.read_csv(filepath_or_buffer='jumps.csv', header=-1, index_col=None)
 
@@ -178,7 +276,6 @@ if __name__ == '__main__':
     valid_entries = range(1, 33)
 
     # Parse file
-    outcomes = ['1-0', '1/2-1/2', '0-1']
     game_count = 0
     board = 0
     result = 0
@@ -191,169 +288,93 @@ if __name__ == '__main__':
     game_corrupt_count = 0
 
     print('Parsing document. This may take a while ...')
-    with open(data_source, 'r') as f:
+    for g in ['win', 'lose', 'draw']:
+        game_corrupt = False
+        game_corrupt_count = 0
+        event = ''
+        with open(data_source, 'r') as f:
 
-        for line in f:
+            while True:
+                line = f.readline()
 
-            if board == 0:
-
-                if line.__contains__('Result' or 'result'):
-                    if line.__contains__(outcomes[0]):
+                if 'Event' in line:
+                    event = line
+                elif 'Result' in line or 'result' in line:
+                    if '1-0' in line:
                         result = 'black'
-                    elif line.__contains__(outcomes[1]):
+                    elif '1/2-1/2' in line:
                         result = 'draw'
-                    elif line.__contains__(outcomes[2]):
+                    elif '0-1' in line:
                         result = 'white'
-
                 elif line[0:2] == '1.':
                     board = Board()
-                    data.append(line)
+                    while line.strip() != '':
+                        data.append(line)
+                        line = f.readline()
 
-            elif board.__class__ == Board:
-
-                if line != '\n':
-                    data.append(line)
-
-                elif line == '\n':
                     data = ' '.join(data)
+                    data = remove_any_comments(data)
+                    data = make_single_line(data)
 
-                    # Remove any parenthetical comments
-                    if data.__contains__('{' or '}'):
-                        str1 = data[0: data.index('{')]
-                        str2 = data[data.index('}') + 1:]
-                        data = str1.join(str2)
-
-                    data = data.split('\n')
-                    data = ''.join(data)
-                    data = data.split('.')
-                    del data[0]
-
-                    for moves in data:
-                        moves = moves.split(' ')
-                        while moves.__contains__(''):
-                            moves.remove('')
-                        moves.pop()
+                    for moves in tokenize_moves(data):
+                        moves = moves.strip().split(' ')
 
                         if len(moves) == 1:
                             contestants = ['black']
 
                         if len(moves) in range(1, 3):
-
-                            for player in contestants:
-                                ind_player = contestants.index(player)
-
-                                if len(moves[ind_player].split('-')) == 2:
-                                    entries = moves[ind_player].split('-')
-
-                                    try:
-                                        if int(entries[0]) and int(entries[1]) in valid_entries:
-                                            player_state = board.board_state(player_type=player)
-                                            player_move = board.move(entries, player_type=player)
-                                            game_corrupt = board.update(entries,
-                                                                        player_type=player,
-                                                                        move_type='standard')
-                                        else:
-                                            game_corrupt = True
-                                            game_corrupt_count += 1
-                                            print('Corrupt game # %d: Invalid Entry' % game_corrupt_count)
-                                            print(entries)
-                                    except ValueError:
-                                        game_corrupt = True
-                                        game_corrupt_count += 1
-                                        print('Corrupt game # %d: entry non-convertable to integer'
-                                              % game_corrupt_count)
-                                        print(entries)
-
-                                elif len(moves[ind_player].split('x')) >= 2:
-                                    entries = moves[ind_player].split('x')
-
-                                    for i in range(len(entries) - 1):
-
-                                        try:
-                                            if int(entries[i]) and int(entries[i + 1]) in valid_entries:
-                                                player_state = board.board_state(player_type=player)
-                                                player_move = board.move(entries[i: i + 2], player_type=player)
-                                                game_corrupt = board.update(entries[i: i + 2],
-                                                                            player_type=player,
-                                                                            move_type='jump')
-                                            else:
-                                                game_corrupt = True
-                                                game_corrupt_count += 1
-                                                print('Corrupt game # %d: Invalid Entry' % game_corrupt_count)
-                                                print(entries)
-                                        except ValueError:
-                                            game_corrupt = True
-                                            game_corrupt_count += 1
-                                            print('Corrupt game # %d: entry non-convertable to integer'
-                                                  % game_corrupt_count)
-                                            print(entries)
-
-                                else:
-                                    game_corrupt = True
-                                    game_corrupt_count += 1
-                                    print("Corrupt game # %d: moves could not be split on '-' or 'x'"
-                                          % game_corrupt_count)
-                                    print(moves)
-
-                                if not game_corrupt:
-
-                                    if player == result:
-                                        win_dict[win_counter] = [player_state, player_move]
-                                        win_counter += 1
-                                    elif result == 'draw':
-                                        draw_dict[draw_counter] = [player_state, player_move]
-                                        draw_counter += 1
-                                    else:
-                                        loss_dict[loss_counter] = [player_state, player_move]
-                                        loss_counter += 1
-                                else:
-                                    break
-
+                            parse_moves_into_dict(moves, contestants)
                         else:
-                            game_corrupt = True
-                            game_corrupt_count += 1
-                            print('Corrupt game # %d: Moves length out of range' % game_corrupt_count)
-                            print(moves)
-                            print(data)
+                            print('Corrupt game: Moves length out of range, line %d' % lineno
                             break
 
-                    board = 0
-                    result = 0
-                    data = list()
-                    contestants = ['black', 'white']
+                        board = 0
+                        result = 0
+                        data = list()
+                        contestants = ['black', 'white']
 
-                    if not game_corrupt:
-                        game_count += 1
+                        if not game_corrupt:
+                            game_count += 1
 
-                    game_corrupt = False
+                        game_corrupt = False
 
-                    if game_count % 1000 == 0:
-                        print('%d games parsed so far' % game_count)
+                        if game_count % 1000 == 0:
+                            print('%d games parsed so far' % game_count)
 
-            # # Optional
-            # if game_count == 500:
-            #     break
+                # # Optional
+                # if game_count == 500:
+                #     break
 
-    f.close()
-    print('Parsing complete.')
+        f.close()
+        print('Parsing complete.')
 
-    # Save win, loss, draw dicts into binaries for later use
-    checkers_library = 'checkers_library_full_v2.pickle'
-    print('Saving boards and moves to %s ...' % checkers_library)
-    try:
-        file_ = open(checkers_library, 'wb')
-        data = {'win_library': win_dict,
-                'loss_library': loss_dict,
-                'draw_library': draw_dict}
-        pickle.dump(data, file_, pickle.HIGHEST_PROTOCOL)
+        # Save win, loss, draw dicts into binaries for later use
+        d = {}
+        if g == 'win':
+            checkers_library = 'checkers_library_win.pickle'
+            d = win_dict
+        elif g == 'draw':
+            checkers_library = 'checkers_library_draw.pickle'
+            d = draw_dict
+        elif g == 'lose':
+            checkers_library = 'checkers_library_lose.pickle'
+            d = loss_dict
+        print('Saving boards and moves to %s ...' % checkers_library)
+        try:
+            file_ = open(checkers_library, 'wb')
+            data = {'library': d}
+            pickle.dump(data, file_, pickle.HIGHEST_PROTOCOL)
 
-    except Exception as exception:
-        print('Unable to save data to' + checkers_library + ': %d' % exception)
-        raise
+        except Exception as exception:
+            print('Unable to save data to' + checkers_library + ': %d' % exception)
+            raise
 
-    print('Compressed checkers_library size: %d Bytes' % os.stat(checkers_library).st_size)
-    print('Number of games logged: %d' % game_count)
-    print('Number of winning entries: %d' % win_counter)
-    print('Number of losing entries: %d' % loss_counter)
-    print('Number of draw entries: %d' % draw_counter)
-    print('Number of corrupt games: %d' % game_corrupt_count)
+        print('Compressed checkers_library size: %d Bytes' % os.stat(checkers_library).st_size)
+        print('Number of games logged: %d' % game_count)
+        print('Number of winning entries: %d' % win_counter)
+        print('Number of losing entries: %d' % loss_counter)
+        print('Number of draw entries: %d' % draw_counter)
+        print('Number of corrupt games: %d' % game_corrupt_count)
+
+
+main()
